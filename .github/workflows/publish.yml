@@ -192,11 +192,17 @@ jobs:
         run: |-
           zip -qr ktreesitter-maven-repo.zip maven-repo
           zip -qr ktreesitter-native-libs.zip native-libs
-      - name: Create release
-        run: >-
-          gh release create "$GITHUB_REF_NAME" --generate-notes
-          ktreesitter-maven-repo.zip
-          ktreesitter-native-libs.zip
+      - name: Create or update release
+        run: |-
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" --clobber \
+              ktreesitter-maven-repo.zip \
+              ktreesitter-native-libs.zip
+          else
+            gh release create "$GITHUB_REF_NAME" --generate-notes \
+              ktreesitter-maven-repo.zip \
+              ktreesitter-native-libs.zip
+          fi
         env:
           GH_TOKEN: ${{github.token}}
           GH_REPO: ${{github.repository}}
