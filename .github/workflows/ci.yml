@@ -55,7 +55,11 @@ jobs:
           path: ~/.konan
           key: konan-${{runner.os}}-${{runner.arch}}-2.2.21
       - name: Generate files
-        run: ./gradlew --no-daemon generateGrammarFiles
+        run: >-
+          ./gradlew --no-daemon
+          -P "ndk.version=27.3.13750724"
+          -P "cmake.version=4.1.2"
+          generateGrammarFiles
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
@@ -144,7 +148,11 @@ jobs:
         env:
           CMAKE_INSTALL_LIBDIR: lib/${{matrix.lib_platform}}/${{matrix.lib_arch}}
       - name: Run tests
-        run: ./gradlew --no-daemon -P "cmake.version=4.1.2" ${{matrix.targets}}
+        run: >-
+          ./gradlew --no-daemon
+          -P "ndk.version=27.3.13750724"
+          -P "cmake.version=4.1.2"
+          ${{matrix.targets}}
       - name: Report test results
         uses: mikepenz/action-junit-report@v6
         if: matrix.platform == 'JVM' && !cancelled()
