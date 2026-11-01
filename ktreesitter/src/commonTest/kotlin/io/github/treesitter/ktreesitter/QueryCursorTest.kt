@@ -21,14 +21,6 @@ class QueryCursorTest :
         val query = Query(language, source)
         val tree = parser.parse("class Foo {}")
 
-        @Suppress("DEPRECATION")
-        test("timeoutMicros") {
-            val cursor = query(tree.rootNode)
-            cursor.timeoutMicros shouldBe 0UL
-            cursor.timeoutMicros = 10UL
-            cursor.timeoutMicros shouldBe 10UL
-        }
-
         test("matchLimit") {
             val cursor = query(tree.rootNode)
             cursor.matchLimit shouldBe UInt.MAX_VALUE

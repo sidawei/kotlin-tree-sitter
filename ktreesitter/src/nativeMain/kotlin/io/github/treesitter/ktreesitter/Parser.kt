@@ -65,15 +65,6 @@ actual class Parser actual constructor() {
             field = value
         }
 
-    /**
-     * The maximum duration in microseconds that parsing
-     * should be allowed to take before halting.
-     */
-    @Deprecated("Use the progressCallback in parse()")
-    actual var timeoutMicros: ULong
-        get() = ts_parser_timeout_micros(self)
-        set(value) = ts_parser_set_timeout_micros(self, value)
-
     /** The logger that the parser will use during parsing. */
     @get:Deprecated("The logger can't be called directly.", level = DeprecationLevel.HIDDEN)
     actual var logger: LogFunction? = null
@@ -114,13 +105,18 @@ actual class Parser actual constructor() {
         val language = checkNotNull(language) {
             "The parser has no language assigned"
         }
-        val tree = ts_parser_parse_string_encoding(
-            self,
-            oldTree?.self,
-            source,
-            source.length.convert(),
-            encoding.value
-        )
+        val bytes = source.encode(encoding)
+        // Never pass a null pointer to the parser, even for empty input.
+        val data = if (bytes.isEmpty()) ByteArray(1) else bytes
+        val tree = data.usePinned { pinned ->
+            kts_parser_parse_string_encoding(
+                self,
+                oldTree?.self,
+                pinned.addressOf(0),
+                bytes.size.convert(),
+                encoding.value
+            )
+        }
         checkNotNull(tree) { "Parsing failed" }
         return Tree(tree, source, language)
     }
@@ -147,16 +143,16 @@ actual class Parser actual constructor() {
         val language = checkNotNull(language) {
             "The parser has no language assigned"
         }
-        val arena = Arena()
-        val payloadRef = StableRef.create(ParsePayload(arena, readCallback))
+        val parsePayload = ParsePayload(readCallback, encoding)
+        val payloadRef = StableRef.create(parsePayload)
         val input = cValue<TSInput> {
             payload = payloadRef.asCPointer()
             this.encoding = encoding.value
             read = staticCFunction { payload, index, point, bytes ->
                 val data = payload!!.asStableRef<ParsePayload>().get()
-                val result = data.callback(index, point.useContents { convert() })
-                bytes!!.pointed.value = result?.length?.convert() ?: 0U
-                result?.toString()?.cstr?.getPointer(data.memScope)
+                data.update(data.callback(index, point.useContents { convert() }))
+                bytes!!.pointed.value = data.chunkSize.convert()
+                data.chunk
             }
         }
         var progressRef: StableRef<ParseProgressCallback>? = null
@@ -174,7 +170,7 @@ actual class Parser actual constructor() {
             }
             ts_parser_parse_with_options(self, oldTree?.self, input, options)
         }
-        arena.clear()
+        parsePayload.clear()
         payloadRef.dispose()
         progressRef?.dispose()
         checkNotNull(tree) { "Parsing failed" }
@@ -196,9 +192,44 @@ actual class Parser actual constructor() {
     actual enum class LogType { LEX, PARSE }
 
     private class ParsePayload(
-        val memScope: AutofreeScope,
-        val callback: ParseReadCallback
-    )
+        val callback: ParseReadCallback,
+        private val encoding: InputEncoding
+    ) {
+        private var arena: Arena? = null
+
+        var chunk: CPointer<ByteVar>? = null
+            private set
+
+        var chunkSize: Int = 0
+            private set
+
+        fun update(result: CharSequence?) {
+            // An arena cannot be reused after clear(), so allocate a new one
+            // for every chunk and release the previous chunk's memory.
+            arena?.clear()
+            arena = null
+            chunk = null
+            chunkSize = 0
+            if (result == null)
+                return
+
+            val bytes = result.encode(encoding)
+            chunkSize = bytes.size
+            val chunkArena = Arena()
+            val pointer = chunkArena.allocArray<ByteVar>(maxOf(bytes.size, 1))
+            for (i in bytes.indices)
+                pointer[i] = bytes[i]
+            chunk = pointer
+            arena = chunkArena
+        }
+
+        fun clear() {
+            arena?.clear()
+            arena = null
+            chunk = null
+            chunkSize = 0
+        }
+    }
 
     private companion object {
         private fun freeLogger(logger: CValue<TSLogger>) {
@@ -209,4 +240,28 @@ actual class Parser actual constructor() {
             arena.clear()
         }
     }
+}
+
+private fun CharSequence.encode(encoding: InputEncoding): ByteArray {
+    val source = toString()
+    return when (encoding) {
+        InputEncoding.UTF_8 -> source.encodeToByteArray()
+        InputEncoding.UTF_16LE -> source.encodeUtf16(littleEndian = true)
+        InputEncoding.UTF_16BE -> source.encodeUtf16(littleEndian = false)
+    }
+}
+
+private fun String.encodeUtf16(littleEndian: Boolean): ByteArray {
+    val result = ByteArray(length * 2)
+    for (i in indices) {
+        val code = this[i].code
+        if (littleEndian) {
+            result[i * 2] = code.toByte()
+            result[i * 2 + 1] = (code ushr 8).toByte()
+        } else {
+            result[i * 2] = (code ushr 8).toByte()
+            result[i * 2 + 1] = code.toByte()
+        }
+    }
+    return result
 }

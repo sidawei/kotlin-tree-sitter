@@ -27,6 +27,8 @@ actual class LookaheadIterator @Throws(IllegalArgumentException::class) internal
      * The current symbol ID.
      *
      * The ID of the `ERROR` symbol is equal to `UShort.MAX_VALUE`.
+     * This is only meaningful when the most recent call to [next] returned `true`.
+     * A newly created or reset iterator reports `UShort.MAX_VALUE`.
      */
     @get:JvmName("getCurrentSymbol")
     actual val currentSymbol: UShort
@@ -35,9 +37,9 @@ actual class LookaheadIterator @Throws(IllegalArgumentException::class) internal
     /**
      * The current symbol name.
      *
-     * Newly created lookahead iterators will contain the `ERROR` symbol.
+     * This is `null` unless the most recent call to [next] returned `true`.
      */
-    actual val currentSymbolName: String
+    actual val currentSymbolName: String?
         external get
 
     /**
@@ -66,13 +68,13 @@ actual class LookaheadIterator @Throws(IllegalArgumentException::class) internal
         reset(state)
         return sequence {
             while (nativeNext()) {
-                yield(currentSymbolName)
+                yield(checkNotNull(currentSymbolName))
             }
         }
     }
 
     actual override fun computeNext() = if (nativeNext()) {
-        setNext(Symbol(currentSymbol, currentSymbolName))
+        setNext(Symbol(currentSymbol, checkNotNull(currentSymbolName)))
     } else {
         done()
     }

@@ -132,7 +132,7 @@ jshort JNICALL language_next_state(JNIEnv *env, jobject this, jshort state, jsho
 
 void JNICALL language_check_version(JNIEnv *env, jobject this) {
     TSLanguage *self = GET_POINTER(TSLanguage, this, Language_self);
-    uint32_t version = ts_language_version(self);
+    uint32_t version = ts_language_abi_version(self);
     if (version < TREE_SITTER_MIN_COMPATIBLE_LANGUAGE_VERSION ||
         version > TREE_SITTER_LANGUAGE_VERSION) {
         const char *fmt = "Incompatible language version %u. Must be between %u and %u.";

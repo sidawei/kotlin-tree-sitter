@@ -33,6 +33,8 @@ actual class LookaheadIterator @Throws(IllegalArgumentException::class) internal
      * The current symbol ID.
      *
      * The ID of the `ERROR` symbol is equal to `UShort.MAX_VALUE`.
+     * This is only meaningful when the most recent call to [next] returned `true`.
+     * A newly created or reset iterator reports `UShort.MAX_VALUE`.
      */
     actual val currentSymbol: UShort
         get() = ts_lookahead_iterator_current_symbol(self)
@@ -40,10 +42,10 @@ actual class LookaheadIterator @Throws(IllegalArgumentException::class) internal
     /**
      * The current symbol name.
      *
-     * Newly created lookahead iterators will contain the `ERROR` symbol.
+     * This is `null` unless the most recent call to [next] returned `true`.
      */
-    actual val currentSymbolName: String
-        get() = ts_lookahead_iterator_current_symbol_name(self)!!.toKString()
+    actual val currentSymbolName: String?
+        get() = ts_lookahead_iterator_current_symbol_name(self)?.toKString()
 
     /**
      * Reset the lookahead iterator the given [state] and, optionally, another [language].

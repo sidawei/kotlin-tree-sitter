@@ -19,22 +19,6 @@ actual class QueryCursor internal constructor(
     }
 
     /**
-     * The maximum duration in microseconds that query
-     * execution should be allowed to take before halting.
-     *
-     * Default: `0`
-     *
-     * @since 0.23.0
-     */
-    @get:JvmName("getTimeoutMicros")
-    @set:JvmName("setTimeoutMicros")
-    @Deprecated("Use the progressCallback in Query.invoke()")
-    actual var timeoutMicros: ULong
-        external get
-
-        external set
-
-    /**
      * The maximum number of in-progress matches.
      *
      * Default: `UInt.MAX_VALUE`

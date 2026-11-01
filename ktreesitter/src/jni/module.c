@@ -110,11 +110,9 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *_reserved) {
     CACHE_FIELD(QueryCursor, self, "J");
     CACHE_FIELD(QueryCursor, matchLimit, "I");
     CACHE_FIELD(QueryCursor, maxStartDepth, "I");
-    CACHE_FIELD(QueryCursor, timeoutMicros, "J");
 
     REGISTER_CLASS(Parser);
     CACHE_FIELD(Parser, self, "J");
-    CACHE_FIELD(Parser, timeoutMicros, "J");
     CACHE_FIELD(Parser, language, "L" PACKAGE "Language;");
     CACHE_FIELD(Parser, includedRanges, "Ljava/util/List;");
     CACHE_FIELD(Parser, logger, "Lkotlin/jvm/functions/Function2;");

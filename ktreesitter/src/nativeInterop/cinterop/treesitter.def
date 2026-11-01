@@ -44,6 +44,16 @@ static inline int32_t kts_node_hash(TSNode node) {
     return (int32_t)(id == tree ? id : id ^ tree);
 }
 
+static inline TSTree *kts_parser_parse_string_encoding(
+    TSParser *self,
+    const TSTree *old_tree,
+    char *string,
+    uint32_t length,
+    TSInputEncoding encoding
+) {
+    return ts_parser_parse_string_encoding(self, old_tree, string, length, encoding);
+}
+
 static inline void *kts_malloc(size_t size) {
     return ts_malloc(size);
 }

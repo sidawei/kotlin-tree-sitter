@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <string.h>
 
 #include "utils.h"
@@ -5,11 +6,133 @@
 typedef struct {
     JNIEnv *env;
     jobject callback;
-    struct {
-        jstring string;
-        const char *chars;
-    } last_result;
+    TSInputEncoding encoding;
+    char *chunk;
 } ReadPayload;
+
+typedef struct {
+    char *data;
+    uint32_t length;
+} EncodedString;
+
+static inline bool allocate_bytes(JNIEnv *env, size_t size, char **out) {
+    // Always allocate at least one byte so that the result is non-NULL.
+    char *data = (char *)malloc(size ? size : 1);
+    if (data == NULL) {
+        jclass error = (*env)->FindClass(env, "java/lang/OutOfMemoryError");
+        if (error != NULL) {
+            (*env)->ThrowNew(env, error, "Failed to allocate string buffer");
+            (*env)->DeleteLocalRef(env, error);
+        }
+        return false;
+    }
+    *out = data;
+    return true;
+}
+
+static size_t utf8_size(const jchar *chars, jsize length) {
+    size_t size = 0;
+    for (jsize i = 0; i < length; ++i) {
+        uint32_t c = chars[i];
+        if (c >= 0xD800 && c <= 0xDBFF && i + 1 < length && chars[i + 1] >= 0xDC00 &&
+            chars[i + 1] <= 0xDFFF) {
+            size += 4;
+            ++i;
+        } else if (c >= 0xD800 && c <= 0xDFFF) {
+            // Match String.getBytes(StandardCharsets.UTF_8), which replaces
+            // malformed surrogates with '?'.
+            size += 1;
+        } else if (c < 0x80) {
+            size += 1;
+        } else if (c < 0x800) {
+            size += 2;
+        } else {
+            size += 3;
+        }
+    }
+    return size;
+}
+
+static void utf8_encode(const jchar *chars, jsize length, char *data) {
+    size_t offset = 0;
+    for (jsize i = 0; i < length; ++i) {
+        uint32_t c = chars[i];
+        if (c >= 0xD800 && c <= 0xDBFF && i + 1 < length && chars[i + 1] >= 0xDC00 &&
+            chars[i + 1] <= 0xDFFF) {
+            uint32_t code_point =
+                0x10000 + ((c - 0xD800) << 10) + ((uint32_t)chars[i + 1] - 0xDC00);
+            data[offset++] = (char)(0xF0 | (code_point >> 18));
+            data[offset++] = (char)(0x80 | ((code_point >> 12) & 0x3F));
+            data[offset++] = (char)(0x80 | ((code_point >> 6) & 0x3F));
+            data[offset++] = (char)(0x80 | (code_point & 0x3F));
+            ++i;
+        } else if (c >= 0xD800 && c <= 0xDFFF) {
+            data[offset++] = '?';
+        } else if (c < 0x80) {
+            data[offset++] = (char)c;
+        } else if (c < 0x800) {
+            data[offset++] = (char)(0xC0 | (c >> 6));
+            data[offset++] = (char)(0x80 | (c & 0x3F));
+        } else {
+            data[offset++] = (char)(0xE0 | (c >> 12));
+            data[offset++] = (char)(0x80 | ((c >> 6) & 0x3F));
+            data[offset++] = (char)(0x80 | (c & 0x3F));
+        }
+    }
+}
+
+/**
+ * Encode a Java string into bytes in the given input encoding.
+ *
+ * JNI's GetStringUTFChars only produces modified UTF-8, which is neither
+ * standard UTF-8 (supplementary characters are encoded as surrogate pairs)
+ * nor UTF-16. Tree-sitter's TSInput encoding refers to the actual byte
+ * representation, so the source must be encoded explicitly.
+ */
+static EncodedString encode_string(JNIEnv *env, jstring string, TSInputEncoding encoding) {
+    EncodedString result = {NULL, 0};
+    if (string == NULL)
+        return result;
+
+    jsize length = (*env)->GetStringLength(env, string);
+    const jchar *chars = (*env)->GetStringChars(env, string, NULL);
+    if (chars == NULL)
+        return result;
+
+    if (encoding == TSInputEncodingUTF16LE || encoding == TSInputEncodingUTF16BE) {
+        size_t size = (size_t)length * 2;
+        char *data;
+        if (!allocate_bytes(env, size, &data)) {
+            (*env)->ReleaseStringChars(env, string, chars);
+            return result;
+        }
+        for (jsize i = 0; i < length; ++i) {
+            uint32_t c = chars[i];
+            if (encoding == TSInputEncodingUTF16LE) {
+                data[i * 2] = (char)(c & 0xFF);
+                data[i * 2 + 1] = (char)((c >> 8) & 0xFF);
+            } else {
+                data[i * 2] = (char)((c >> 8) & 0xFF);
+                data[i * 2 + 1] = (char)(c & 0xFF);
+            }
+        }
+        result.data = data;
+        result.length = (uint32_t)size;
+    } else {
+        size_t size = utf8_size(chars, length);
+        char *data;
+        if (!allocate_bytes(env, size, &data)) {
+            (*env)->ReleaseStringChars(env, string, chars);
+            return result;
+        }
+        utf8_encode(chars, length, data);
+        result.data = data;
+        result.length = (uint32_t)size;
+    }
+
+    (*env)->ReleaseStringChars(env, string, chars);
+    return result;
+}
 
 static inline TSInputEncoding get_encoding(JNIEnv *env, jobject encoding) {
     jobject UTF_8 = GET_STATIC_FIELD(Object, InputEncoding, InputEncoding_UTF_8);
@@ -58,11 +181,9 @@ static const char *parse_read_callback(void *payload, uint32_t byte_index, TSPoi
                                        uint32_t *bytes_read) {
     ReadPayload *read_payload = (ReadPayload *)payload;
     JNIEnv *env = read_payload->env;
-    jstring last_string = read_payload->last_result.string;
-    const char *last_chars = read_payload->last_result.chars;
-    if (last_string) {
-        (*env)->ReleaseStringUTFChars(env, last_string, last_chars);
-    }
+    *bytes_read = 0;
+    free(read_payload->chunk);
+    read_payload->chunk = NULL;
 
     jobject point = marshal_point(env, position);
     jobject byte = (*env)->AllocObject(env, global_class_cache.UInt);
@@ -80,12 +201,19 @@ static const char *parse_read_callback(void *payload, uint32_t byte_index, TSPoi
     (*env)->DeleteLocalRef(env, char_sequence);
     if ((*env)->ExceptionCheck(env))
         return NULL;
+    if (string == NULL)
+        return NULL;
 
-    const char *result = (*env)->GetStringUTFChars(env, string, NULL);
-    *bytes_read = (uint32_t)(*env)->GetStringUTFLength(env, string);
-    read_payload->last_result.string = string;
-    read_payload->last_result.chars = result;
-    return result;
+    EncodedString encoded = encode_string(env, string, read_payload->encoding);
+    (*env)->DeleteLocalRef(env, string);
+    if ((*env)->ExceptionCheck(env)) {
+        free(encoded.data);
+        return NULL;
+    }
+
+    read_payload->chunk = encoded.data;
+    *bytes_read = encoded.length;
+    return encoded.data;
 }
 
 static bool parse_progress_callback(TSParseState *state) {
@@ -109,11 +237,6 @@ void JNICALL parser_delete(JNIEnv *env, jclass _class, jlong self) {
     if (logger.payload != NULL)
         (*env)->DeleteGlobalRef(env, (jobject)logger.payload);
     ts_parser_delete((TSParser *)self);
-}
-
-jlong JNICALL parser_get_timeout_micros(JNIEnv *env, jobject this) {
-    TSParser *self = GET_POINTER(TSParser, this, Parser_self);
-    return ts_parser_timeout_micros(self);
 }
 
 void JNICALL parser_set_language(JNIEnv *env, jobject this, jobject value) {
@@ -146,12 +269,6 @@ void JNICALL parser_set_included_ranges(JNIEnv *env, jobject this, jobject value
     free(ts_ranges);
 }
 
-void JNICALL parser_set_timeout_micros(JNIEnv *env, jobject this, jlong value) {
-    TSParser *self = GET_POINTER(TSParser, this, Parser_self);
-    ts_parser_set_timeout_micros(self, (uint64_t)value);
-    (*env)->SetLongField(env, this, global_field_cache.Parser_timeoutMicros, value);
-}
-
 void JNICALL parser_set_logger(JNIEnv *env, jobject this, jobject value) {
     TSParser *self = GET_POINTER(TSParser, this, Parser_self);
     TSLogger logger = ts_parser_logger(self);
@@ -181,13 +298,16 @@ jobject JNICALL parser_parse__string(JNIEnv *env, jobject this, jstring source, 
     }
 
     TSTree *old_ts_tree = old_tree ? GET_POINTER(TSTree, old_tree, Tree_self) : NULL;
-    uint32_t length;
-    const char *string = (*env)->GetStringUTFChars(env, source, NULL);
-    length = (uint32_t)(*env)->GetStringUTFLength(env, source);
     TSInputEncoding input_encoding = get_encoding(env, encoding);
+    EncodedString encoded = encode_string(env, source, input_encoding);
+    if ((*env)->ExceptionCheck(env)) {
+        free(encoded.data);
+        return NULL;
+    }
     TSTree *ts_tree =
-        ts_parser_parse_string_encoding(self, old_ts_tree, string, length, input_encoding);
-    (*env)->ReleaseStringUTFChars(env, source, string);
+        ts_parser_parse_string_encoding(self, old_ts_tree, encoded.data, encoded.length,
+                                        input_encoding);
+    free(encoded.data);
 
     if (ts_tree == NULL) {
         const char *error = "Parsing failed";
@@ -209,8 +329,13 @@ jobject JNICALL parser_parse__function(JNIEnv *env, jobject this, jobject encodi
     }
     TSTree *old_ts_tree = old_tree ? GET_POINTER(TSTree, old_tree, Tree_self) : NULL;
 
-    ReadPayload read_payload = {.env = env, .callback = read_callback};
     TSInputEncoding input_encoding = get_encoding(env, encoding);
+    ReadPayload read_payload = {
+        .env = env,
+        .callback = read_callback,
+        .encoding = input_encoding,
+        .chunk = NULL,
+    };
     TSInput input = {
         .payload = (void *)&read_payload,
         .read = parse_read_callback,
@@ -227,6 +352,8 @@ jobject JNICALL parser_parse__function(JNIEnv *env, jobject this, jobject encodi
         };
         ts_tree = ts_parser_parse_with_options(self, old_ts_tree, input, options);
     }
+    free(read_payload.chunk);
+    read_payload.chunk = NULL;
 
     if ((*env)->ExceptionCheck(env)) {
         (*env)->Throw(env, (*env)->ExceptionOccurred(env));
@@ -250,8 +377,6 @@ const JNINativeMethod Parser_methods[] = {
     {"delete", "(J)V", (void *)&parser_delete},
     {"setLanguage", "(L" PACKAGE "Language;)V", (void *)&parser_set_language},
     {"setIncludedRanges", "(Ljava/util/List;)V", (void *)&parser_set_included_ranges},
-    {"getTimeoutMicros", "()J", (void *)&parser_get_timeout_micros},
-    {"setTimeoutMicros", "(J)V", (void *)&parser_set_timeout_micros},
     {"setLogger", "(Lkotlin/jvm/functions/Function2;)V", (void *)&parser_set_logger},
     {"parse", "(Ljava/lang/String;L" PACKAGE "InputEncoding;L" PACKAGE "Tree;)L" PACKAGE "Tree;",
      (void *)&parser_parse__string},

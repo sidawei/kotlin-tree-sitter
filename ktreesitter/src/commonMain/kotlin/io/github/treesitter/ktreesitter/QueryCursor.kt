@@ -7,17 +7,6 @@ package io.github.treesitter.ktreesitter
  */
 expect class QueryCursor {
     /**
-     * The maximum duration in microseconds that query
-     * execution should be allowed to take before halting.
-     *
-     * Default: `0`
-     *
-     * @since 0.23.0
-     */
-    @Deprecated("Use the progressCallback in Query.invoke()")
-    var timeoutMicros: ULong
-
-    /**
      * The maximum number of in-progress matches.
      *
      * Default: `UInt.MAX_VALUE`

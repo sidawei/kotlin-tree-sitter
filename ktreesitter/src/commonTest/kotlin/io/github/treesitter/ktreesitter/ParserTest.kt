@@ -51,20 +51,48 @@ class ParserTest : FunSpec({
             it shouldStartWith "LEX"
         }
 
-        // UTF-16
-        source = "\uFEFFvar java = \"💩\""
-        tree = parser.parse(source, encoding = InputEncoding.UTF_16BE)
-        tree.text()?.subSequence(13, 15) shouldBe "\uD83D\uDCA9"
+        // UTF-8: supplementary characters must use standard 4-byte UTF-8
+        source = "class Foo { String s = \"💩\"; }"
+        tree = parser.parse(source)
+        tree.rootNode.hasError shouldBe false
+        tree.rootNode.startByte shouldBe 0U
+        tree.rootNode.endByte shouldBe 32U
+
+        // UTF-16LE / UTF-16BE: the source must be encoded as actual UTF-16 bytes
+        for (encoding in listOf(InputEncoding.UTF_16LE, InputEncoding.UTF_16BE)) {
+            tree = parser.parse(source, encoding)
+            tree.rootNode.hasError shouldBe false
+            tree.rootNode.startByte shouldBe 0U
+            tree.rootNode.endByte shouldBe (source.length * 2).toUInt()
+            tree.text().toString() shouldBe source
+        }
     }
 
     test("parse(readCallback)") {
         val source = "class Foo {}"
-        val tree = parser.parse { byte, _ ->
-            val end = minOf(byte.toInt() * 2, source.length)
-            source.subSequence(byte.toInt(), end).ifEmpty { null }
+        var tree = parser.parse { byte, _ ->
+            val index = byte.toInt()
+            if (index >= source.length) null
+            else source.substring(index, minOf(index + 4, source.length))
         }
         tree.text().shouldBeNull()
         tree.rootNode.type shouldBe "program"
+        tree.rootNode.hasError shouldBe false
+        tree.rootNode.endByte shouldBe source.length.toUInt()
+
+        // UTF-16 callback chunks are addressed by byte offset,
+        // so the source index is half the byte offset.
+        for (encoding in listOf(InputEncoding.UTF_16LE, InputEncoding.UTF_16BE)) {
+            tree = parser.parse(encoding) { byte, _ ->
+                val index = byte.toInt() / 2
+                if (index >= source.length) null
+                else source.substring(index, minOf(index + 4, source.length))
+            }
+            tree.text().shouldBeNull()
+            tree.rootNode.type shouldBe "program"
+            tree.rootNode.hasError shouldBe false
+            tree.rootNode.endByte shouldBe (source.length * 2).toUInt()
+        }
     }
 
     afterTest { (test, _) ->

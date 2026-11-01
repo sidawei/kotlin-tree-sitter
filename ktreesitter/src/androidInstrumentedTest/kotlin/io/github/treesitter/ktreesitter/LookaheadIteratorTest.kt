@@ -5,6 +5,7 @@ import io.github.treesitter.ktreesitter.java.TreeSitterJava
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.*
 import io.kotest.matchers.collections.*
+import io.kotest.matchers.nulls.*
 import org.junit.runner.RunWith
 
 @RunWith(KotestRunnerAndroid::class)
@@ -14,8 +15,9 @@ class LookaheadIteratorTest : FunSpec({
     val lookahead = language.lookaheadIterator(state)
 
     test("currentSymbol") {
+        // A fresh iterator is not positioned on a symbol.
         lookahead.currentSymbol shouldBe UShort.MAX_VALUE
-        lookahead.currentSymbolName shouldBe "ERROR"
+        lookahead.currentSymbolName.shouldBeNull()
     }
 
     test("next()") {

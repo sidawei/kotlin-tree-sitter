@@ -41,21 +41,6 @@ actual class QueryCursor internal constructor(
     private val cleaner = createCleaner(self, ::ts_query_cursor_delete)
 
     /**
-     * The maximum duration in microseconds that query
-     * execution should be allowed to take before halting.
-     *
-     * Default: `0`
-     *
-     * @since 0.23.0
-     */
-    @Deprecated("Use the progressCallback in Query.invoke()")
-    actual var timeoutMicros: ULong
-        get() = ts_query_cursor_timeout_micros(self)
-        set(value) {
-            ts_query_cursor_set_timeout_micros(self, value)
-        }
-
-    /**
      * The maximum number of in-progress matches.
      *
      * Default: `UInt.MAX_VALUE`
