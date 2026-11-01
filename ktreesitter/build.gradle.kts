@@ -202,10 +202,10 @@ publishing {
 }
 
 signing {
-    isRequired = System.getenv("CI") != null
+    val key = System.getenv("SIGNING_KEY")
+    val password = System.getenv("SIGNING_PASSWORD")
+    isRequired = !key.isNullOrBlank() && !password.isNullOrBlank()
     if (isRequired) {
-        val key = System.getenv("SIGNING_KEY")
-        val password = System.getenv("SIGNING_PASSWORD")
         useInMemoryPgpKeys(key, password)
     }
     sign(publishing.publications)
