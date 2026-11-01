@@ -150,6 +150,12 @@ static inline TSInputEncoding get_encoding(JNIEnv *env, jobject encoding) {
     UNREACHABLE();
 }
 
+static inline jobject get_encoding_object(JNIEnv *env, jobject encoding) {
+    if (encoding != NULL)
+        return encoding;
+    return GET_STATIC_FIELD(Object, InputEncoding, InputEncoding_UTF_8);
+}
+
 static void log_function(void *payload, TSLogType log_type, const char *buffer) {
     JNIEnv *env;
     int rc = (*java_vm)->GetEnv(java_vm, (void **)&env, JNI_VERSION_1_6);
@@ -314,7 +320,8 @@ jobject JNICALL parser_parse__string(JNIEnv *env, jobject this, jstring source, 
         (*env)->ThrowNew(env, global_class_cache.IllegalStateException, error);
         return NULL;
     }
-    return NEW_OBJECT(Tree, (jlong)ts_tree, source, language);
+    return NEW_OBJECT(Tree, (jlong)ts_tree, source, get_encoding_object(env, encoding),
+                      language);
 }
 
 jobject JNICALL parser_parse__function(JNIEnv *env, jobject this, jobject encoding,
@@ -364,7 +371,8 @@ jobject JNICALL parser_parse__function(JNIEnv *env, jobject this, jobject encodi
         (*env)->ThrowNew(env, global_class_cache.IllegalStateException, error);
         return NULL;
     }
-    return NEW_OBJECT(Tree, (jlong)ts_tree, NULL, language);
+    return NEW_OBJECT(Tree, (jlong)ts_tree, NULL, get_encoding_object(env, encoding),
+                      language);
 }
 
 void JNICALL parser_reset(JNIEnv *env, jobject this) {

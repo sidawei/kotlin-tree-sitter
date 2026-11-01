@@ -12,6 +12,7 @@ import dalvik.annotation.optimization.FastNative
 actual class Tree internal constructor(
     private val self: Long,
     private var source: String?,
+    internal val encoding: InputEncoding,
     /** The language that was used to parse the syntax tree. */
     actual val language: Language
 ) : AutoCloseable {
@@ -25,6 +26,9 @@ actual class Tree internal constructor(
 
     /** The included ranges that were used to parse the syntax tree. */
     actual val includedRanges by lazy { nativeIncludedRanges() }
+
+    /** The source code encoded as bytes in [encoding]. */
+    private val sourceBytes: ByteArray? by lazy { source?.toByteArray(encoding.charset) }
 
     /**
      * Get the root node of the syntax tree, but with
@@ -47,13 +51,22 @@ actual class Tree internal constructor(
      * You need to copy a syntax tree in order to use it on multiple
      * threads or coroutines, as syntax trees are not thread safe.
      */
-    actual fun copy() = Tree(copy(self), source, language)
+    actual fun copy() = Tree(copy(self), source, encoding, language)
 
     /** Create a new tree cursor starting from the node of the tree. */
     actual fun walk() = TreeCursor(rootNode)
 
     /** Get the source code of the syntax tree, if available. */
     actual fun text(): CharSequence? = source
+
+    /** Get the source text spanning the given byte range, if available. */
+    internal fun sourceText(startByte: UInt, endByte: UInt): String? {
+        if (source == null) return null
+        val bytes = sourceBytes ?: return null
+        val start = minOf(startByte.toInt(), bytes.size)
+        val end = minOf(endByte.toInt(), bytes.size)
+        return if (start >= end) "" else String(bytes, start, end - start, encoding.charset)
+    }
 
     /**
      * Compare an old edited syntax tree to a new

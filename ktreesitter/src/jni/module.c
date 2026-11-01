@@ -94,7 +94,8 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *_reserved) {
     REGISTER_CLASS(Tree);
     CACHE_FIELD(Tree, self, "J");
     CACHE_FIELD(Tree, source, "Ljava/lang/String;");
-    CACHE_METHOD(Tree, init, "<init>", "(JLjava/lang/String;L" PACKAGE "Language;)V");
+    CACHE_METHOD(Tree, init, "<init>",
+                 "(JLjava/lang/String;L" PACKAGE "InputEncoding;L" PACKAGE "Language;)V");
 
     REGISTER_CLASS(TreeCursor);
     CACHE_FIELD(TreeCursor, self, "J");

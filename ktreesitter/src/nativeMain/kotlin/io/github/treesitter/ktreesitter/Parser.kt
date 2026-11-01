@@ -118,7 +118,7 @@ actual class Parser actual constructor() {
             )
         }
         checkNotNull(tree) { "Parsing failed" }
-        return Tree(tree, source, language)
+        return Tree(tree, source, encoding, language)
     }
 
     /**
@@ -174,7 +174,7 @@ actual class Parser actual constructor() {
         payloadRef.dispose()
         progressRef?.dispose()
         checkNotNull(tree) { "Parsing failed" }
-        return Tree(tree, null, language)
+        return Tree(tree, null, encoding, language)
     }
 
     /**
@@ -217,8 +217,9 @@ actual class Parser actual constructor() {
             chunkSize = bytes.size
             val chunkArena = Arena()
             val pointer = chunkArena.allocArray<ByteVar>(maxOf(bytes.size, 1))
-            for (i in bytes.indices)
+            for (i in bytes.indices) {
                 pointer[i] = bytes[i]
+            }
             chunk = pointer
             arena = chunkArena
         }
@@ -240,28 +241,4 @@ actual class Parser actual constructor() {
             arena.clear()
         }
     }
-}
-
-private fun CharSequence.encode(encoding: InputEncoding): ByteArray {
-    val source = toString()
-    return when (encoding) {
-        InputEncoding.UTF_8 -> source.encodeToByteArray()
-        InputEncoding.UTF_16LE -> source.encodeUtf16(littleEndian = true)
-        InputEncoding.UTF_16BE -> source.encodeUtf16(littleEndian = false)
-    }
-}
-
-private fun String.encodeUtf16(littleEndian: Boolean): ByteArray {
-    val result = ByteArray(length * 2)
-    for (i in indices) {
-        val code = this[i].code
-        if (littleEndian) {
-            result[i * 2] = code.toByte()
-            result[i * 2 + 1] = (code ushr 8).toByte()
-        } else {
-            result[i * 2] = (code ushr 8).toByte()
-            result[i * 2 + 1] = code.toByte()
-        }
-    }
-    return result
 }

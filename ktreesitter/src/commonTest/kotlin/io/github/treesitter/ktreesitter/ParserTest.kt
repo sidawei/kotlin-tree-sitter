@@ -68,6 +68,32 @@ class ParserTest : FunSpec({
         }
     }
 
+    test("node text()") {
+        val parser = Parser(Language(TreeSitterJava.language()))
+        val source = "class Foo { String s = \"héllo 💩\"; }"
+        val utf8 = source.encodeToByteArray()
+        val encodings = listOf(
+            InputEncoding.UTF_8,
+            InputEncoding.UTF_16LE,
+            InputEncoding.UTF_16BE
+        )
+        for (encoding in encodings) {
+            val tree = parser.parse(source, encoding)
+            tree.rootNode.hasError shouldBe false
+            for (node in collectLeaves(tree.rootNode)) {
+                val start = node.startByte.toInt()
+                val end = node.endByte.toInt()
+                val expected = when (encoding) {
+                    InputEncoding.UTF_8 -> utf8.decodeToString(start, end)
+
+                    InputEncoding.UTF_16LE,
+                    InputEncoding.UTF_16BE -> source.substring(start / 2, end / 2)
+                }
+                node.text() shouldBe expected
+            }
+        }
+    }
+
     test("parse(readCallback)") {
         val source = "class Foo {}"
         var tree = parser.parse { byte, _ ->
@@ -102,3 +128,13 @@ class ParserTest : FunSpec({
         }
     }
 })
+
+/** Collect all leaf nodes of the given subtree. */
+private fun collectLeaves(node: Node, leaves: MutableList<Node> = mutableListOf()): List<Node> {
+    if (node.childCount == 0U) {
+        leaves += node
+    } else {
+        for (i in 0U until node.childCount) collectLeaves(node.child(i)!!, leaves)
+    }
+    return leaves
+}

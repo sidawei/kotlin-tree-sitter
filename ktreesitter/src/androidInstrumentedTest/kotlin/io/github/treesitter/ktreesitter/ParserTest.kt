@@ -54,10 +54,12 @@ class ParserTest : FunSpec({
             it shouldStartWith "LEX"
         }
 
-        // UTF-16
-        source = "\uFEFFvar java = \"💩\""
+        // UTF-16: node byte offsets are twice the character offsets,
+        // so text() must decode the bytes instead of using them as indices.
+        source = "class Foo { String s = \"💩\"; }"
         tree = parser.parse(source, encoding = InputEncoding.UTF_16BE)
-        tree.text()?.subSequence(13, 15) shouldBe "\uD83D\uDCA9"
+        tree.rootNode.hasError shouldBe false
+        tree.rootNode.descendant(48U, 52U)?.text() shouldBe "💩"
     }
 
     test("parse(readCallback)") {
