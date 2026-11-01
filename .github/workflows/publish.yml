@@ -161,9 +161,6 @@ jobs:
           -P "ndk.version=27.3.13750724"
           -P "cmake.version=4.1.2"
           ${{matrix.targets}}
-        env:
-          SIGNING_KEY: ${{secrets.SIGNING_KEY}}
-          SIGNING_PASSWORD: ${{secrets.SIGNING_PASSWORD}}
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -172,80 +169,34 @@ jobs:
             ktreesitter/build/repo/**
             !ktreesitter/build/repo/**/maven-metadata.*
           retention-days: 2
-  publish-library:
+  release:
     runs-on: ubuntu-latest
-    name: Publish packages on Maven Central
+    name: Create GitHub release
     needs: [build-jars]
     permissions:
       contents: write
-    environment:
-      name: maven-central
-      url: https://central.sonatype.com/artifact/io.github.tree-sitter/ktreesitter
-    env:
-      SONATYPE_API: https://central.sonatype.com/api/v1/publisher
-      SONATYPE_AUTH: "Authorization: Bearer ${{secrets.SONATYPE_TOKEN}}"
     steps:
-      - name: Download artifacts
+      - name: Download package artifacts
         uses: actions/download-artifact@v8
         with:
-          path: ktreesitter
+          path: maven-repo
           pattern: ktreesitter-jars-*
           merge-multiple: true
-      - name: Upload bundle
+      - name: Download native libraries
+        uses: actions/download-artifact@v8
+        with:
+          path: native-libs
+          pattern: ktreesitter-lib-*
+          merge-multiple: true
+      - name: Package artifacts
         run: |-
-          url="$SONATYPE_API/upload?name=ktreesitter-${GITHUB_REF_NAME}.zip&publishingType=USER_MANAGED"
-          (cd ktreesitter && zip -qr ../ktreesitter.zip *)
-          printf >> "$GITHUB_ENV" 'DEPLOYMENT_ID=%s\n' $(curl -Ssf -Fbundle=@ktreesitter.zip -H "$SONATYPE_AUTH" "$url")
-      - name: Verify status
-        timeout-minutes: 5
-        run: |-
-          url="$SONATYPE_API/status?id=$DEPLOYMENT_ID"
-          while [[ ${state:=PENDING} == PENDING ]] || [[ $state == VALIDATING ]]; do
-            state=$(curl -Ssf -XPOST -H "$SONATYPE_AUTH" "$url"  | jq -r .deploymentState)
-          done
-          if [[ $state == FAILED ]]; then
-            printf '::error title=Publication failed::Check https://central.sonatype.com/publishing/deployments\n'
-            exit 1
-          fi
-      - name: Publish deployment
-        run: curl -fi -XPOST -H "$SONATYPE_AUTH" "$SONATYPE_API/deployment/$DEPLOYMENT_ID"
+          zip -qr ktreesitter-maven-repo.zip maven-repo
+          zip -qr ktreesitter-native-libs.zip native-libs
       - name: Create release
-        run: gh release create $GITHUB_REF_NAME --generate-notes
+        run: >-
+          gh release create "$GITHUB_REF_NAME" --generate-notes
+          ktreesitter-maven-repo.zip
+          ktreesitter-native-libs.zip
         env:
           GH_TOKEN: ${{github.token}}
           GH_REPO: ${{github.repository}}
-  publish-plugin:
-    runs-on: ubuntu-latest
-    name: Publish plugin on Gradle Portal
-    needs: [build-jars]
-    environment:
-      name: gradle-plugin-portal
-      url: https://plugins.gradle.org/plugin/io.github.tree-sitter.ktreesitter-plugin
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          submodules: true
-      - name: Set up Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 17
-          cache: gradle
-          cache-dependency-path: |
-            gradle/libs.versions.toml
-            gradle/wrapper/gradle-wrapper.properties
-      - name: Cache Kotlin/Native dependencies
-        uses: actions/cache@v6
-        with:
-          path: ~/.konan
-          key: konan-${{runner.os}}-${{runner.arch}}-2.2.21
-      - name: Publish Gradle plugin
-        run: >-
-          ./gradlew --no-daemon
-          -P "ndk.version=27.3.13750724"
-          -P "cmake.version=4.1.2"
-          :ktreesitter-plugin:publishPlugins
-        env:
-          GRADLE_PUBLISH_KEY: ${{secrets.GRADLE_PUBLISH_KEY}}
-          GRADLE_PUBLISH_SECRET: ${{secrets.GRADLE_PUBLISH_SECRET}}
