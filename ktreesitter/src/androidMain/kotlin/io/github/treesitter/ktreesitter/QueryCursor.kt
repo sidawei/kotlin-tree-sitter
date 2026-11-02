@@ -14,7 +14,8 @@ import dalvik.annotation.optimization.FastNative
 actual class QueryCursor internal constructor(
     private val query: Query,
     private val node: Node,
-    progressCallback: QueryProgressCallback? = null
+    progressCallback: QueryProgressCallback? = null,
+    private val textProvider: QueryTextProvider? = null
 ) : AutoCloseable {
     private val self: Long = init()
 
@@ -170,12 +171,14 @@ actual class QueryCursor internal constructor(
     private inline fun QueryMatch.check(
         predicate: QueryPredicate.(QueryMatch) -> Boolean
     ): QueryMatch? {
-        if (node.tree.text() == null) return this
+        if (textProvider == null && node.tree.text() == null) return this
         val result = query.predicates[patternIndex.toInt()].all {
-            if (it !is QueryPredicate.Generic) it(this) else predicate(it, this)
+            if (it !is QueryPredicate.Generic) it(this, ::textOf) else predicate(it, this)
         }
         return if (result) this else null
     }
+
+    private fun textOf(node: Node) = textProvider?.invoke(node) ?: node.text()
 
     private class CleanAction(private val ptr: Long) : Runnable {
         override fun run() = delete(ptr)

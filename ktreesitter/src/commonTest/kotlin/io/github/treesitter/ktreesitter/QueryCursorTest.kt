@@ -6,6 +6,7 @@ import io.kotest.inspectors.forAll
 import io.kotest.inspectors.forSingle
 import io.kotest.matchers.*
 import io.kotest.matchers.collections.*
+import io.kotest.matchers.nulls.shouldBeNull
 
 class QueryCursorTest :
     FunSpec({
@@ -120,6 +121,43 @@ class QueryCursorTest :
             }.toList()
             matches.forSingle {
                 it.captures[0].node.text() shouldBe "Foo"
+            }
+        }
+
+        test("textProvider") {
+            val source = "class Foo {} class Bar {}"
+            val tree = parser.parse { byte, _ ->
+                val index = byte.toInt()
+                if (index >= source.length) null
+                else source.substring(index, minOf(index + 7, source.length))
+            }
+            tree.text().shouldBeNull()
+
+            val query = Query(
+                language,
+                """
+            ((identifier) @name
+             (#eq? @name "Foo"))
+                """.trimIndent()
+            )
+
+            // Without source text, text predicates cannot be evaluated and are ignored.
+            query(tree.rootNode).matches().toList().shouldHaveSize(2)
+
+            // A text provider supplies the source needed to evaluate the predicates.
+            val bytes = source.encodeToByteArray()
+            val provider: QueryTextProvider = { node ->
+                bytes.decodeToString(node.startByte.toInt(), node.endByte.toInt())
+            }
+            val matches = query(tree.rootNode, textProvider = provider).matches().toList()
+            matches.forSingle {
+                it.captures.single().node.text().shouldBeNull()
+                provider(it.captures.single().node) shouldBe "Foo"
+            }
+
+            val captures = query(tree.rootNode, textProvider = provider).captures().toList()
+            captures.forSingle {
+                it.second.captures.single().node.startByte shouldBe 6U
             }
         }
 

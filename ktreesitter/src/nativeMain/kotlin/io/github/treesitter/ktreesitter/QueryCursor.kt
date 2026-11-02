@@ -14,7 +14,8 @@ import kotlinx.cinterop.*
 actual class QueryCursor internal constructor(
     private val query: Query,
     private val node: Node,
-    progressCallback: QueryProgressCallback? = null
+    progressCallback: QueryProgressCallback? = null,
+    private val textProvider: QueryTextProvider? = null
 ) {
     internal val self = ts_query_cursor_new()!!
 
@@ -176,10 +177,13 @@ actual class QueryCursor internal constructor(
             )
         }
         return QueryMatch(index, captures).takeIf { match ->
-            node.tree.text() == null ||
+            (textProvider == null && node.tree.text() == null) ||
                 query.predicates[index.toInt()].all {
-                    if (it !is QueryPredicate.Generic) it(match) else predicate(it, match)
+                    if (it !is QueryPredicate.Generic) it(match, ::textOf)
+                    else predicate(it, match)
                 }
         }
     }
+
+    private fun textOf(node: Node) = textProvider?.invoke(node) ?: node.text()
 }

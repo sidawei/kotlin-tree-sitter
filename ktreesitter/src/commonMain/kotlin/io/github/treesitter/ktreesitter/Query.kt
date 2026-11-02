@@ -12,6 +12,21 @@ package io.github.treesitter.ktreesitter
 typealias QueryProgressCallback = (currentByteOffset: UInt) -> Boolean
 
 /**
+ * A function that provides the source text of a [Node] while a query is being executed.
+ *
+ * Query predicates such as `#eq?` and `#match?` are evaluated against the text of
+ * captured nodes. If a syntax tree doesn't retain its source code (for example,
+ * when it was parsed from a [ParseReadCallback]), provide a function here so that
+ * the predicates can still be applied.
+ *
+ * The function should return `null` if the text of the node is unavailable;
+ * predicates that rely on the text of that node are then ignored.
+ *
+ * @since 0.27.1
+ */
+typealias QueryTextProvider = (node: Node) -> CharSequence?
+
+/**
  * A class that represents a set of patterns which match nodes in a syntax tree.
  *
  * @constructor
@@ -44,9 +59,17 @@ expect class Query @Throws(QueryError::class) constructor(language: Language, so
     /**
      * Execute the query on the given [Node].
      *
+     * @param progressCallback A function that is called periodically while executing the query.
+     * @param textProvider
+     *  A function that provides the source text of captured nodes for predicate evaluation.
+     *  When `null`, the source stored in the node's [Tree] is used, if available.
      * @since 0.25.0
      */
-    operator fun invoke(node: Node, progressCallback: QueryProgressCallback? = null): QueryCursor
+    operator fun invoke(
+        node: Node,
+        progressCallback: QueryProgressCallback? = null,
+        textProvider: QueryTextProvider? = null
+    ): QueryCursor
 
     /**
      * Get the property settings for the given pattern index.

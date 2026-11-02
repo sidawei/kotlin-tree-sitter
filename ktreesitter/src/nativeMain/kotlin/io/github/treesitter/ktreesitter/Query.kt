@@ -295,8 +295,11 @@ actual class Query @Throws(QueryError::class) actual constructor(
      *
      * @since 0.25.0
      */
-    actual operator fun invoke(node: Node, progressCallback: QueryProgressCallback?) =
-        QueryCursor(this, node, progressCallback)
+    actual operator fun invoke(
+        node: Node,
+        progressCallback: QueryProgressCallback?,
+        textProvider: QueryTextProvider?
+    ) = QueryCursor(this, node, progressCallback, textProvider)
 
     /**
      * Get the property settings for the given pattern index.

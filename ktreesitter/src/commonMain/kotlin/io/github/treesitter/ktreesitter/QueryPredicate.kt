@@ -16,7 +16,13 @@ package io.github.treesitter.ktreesitter
 sealed class QueryPredicate(val name: String) {
     abstract val args: List<QueryPredicateArg>
 
-    internal abstract operator fun invoke(match: QueryMatch): Boolean
+    /**
+     * Evaluate this predicate against [match].
+     *
+     * [text] returns the source text of a node, or `null` if it is unavailable,
+     * in which case predicates that depend on it are ignored.
+     */
+    internal abstract operator fun invoke(match: QueryMatch, text: (Node) -> CharSequence?): Boolean
 
     final override fun toString() = "QueryPredicate(name=$name, args=$args)"
 
@@ -32,14 +38,15 @@ sealed class QueryPredicate(val name: String) {
             QueryPredicateArg.Capture(value)
         )
 
-        override fun invoke(match: QueryMatch): Boolean {
+        override fun invoke(match: QueryMatch, text: (Node) -> CharSequence?): Boolean {
             val nodes1 = match[capture]
             val nodes2 = match[value]
             val test = if (!isAny) nodes1::all else nodes1::any
             return test { n1 ->
-                nodes2.any { n2 ->
-                    val result = n1.text() == n2.text()
-                    if (isPositive) result else !result
+                val text1 = text(n1)
+                text1 == null || nodes2.any { n2 ->
+                    val text2 = text(n2)
+                    text2 == null || (text1.contentEquals(text2) == isPositive)
                 }
             }
         }
@@ -57,13 +64,13 @@ sealed class QueryPredicate(val name: String) {
             QueryPredicateArg.Literal(value)
         )
 
-        override fun invoke(match: QueryMatch): Boolean {
+        override fun invoke(match: QueryMatch, text: (Node) -> CharSequence?): Boolean {
             val nodes = match[capture]
             if (nodes.isEmpty()) return !isPositive
             val test = if (!isAny) nodes::all else nodes::any
             return test {
-                val result = value == it.text()!!
-                if (isPositive) result else !result
+                val nodeText = text(it)
+                nodeText == null || (value.contentEquals(nodeText) == isPositive)
             }
         }
     }
@@ -80,13 +87,13 @@ sealed class QueryPredicate(val name: String) {
             QueryPredicateArg.Literal(pattern.pattern)
         )
 
-        override fun invoke(match: QueryMatch): Boolean {
+        override fun invoke(match: QueryMatch, text: (Node) -> CharSequence?): Boolean {
             val nodes = match[capture]
             if (nodes.isEmpty()) return !isPositive
             val test = if (!isAny) nodes::all else nodes::any
             return test {
-                val result = pattern.containsMatchIn(it.text()!!)
-                if (isPositive) result else !result
+                val nodeText = text(it)
+                nodeText == null || (pattern.containsMatchIn(nodeText) == isPositive)
             }
         }
     }
@@ -102,14 +109,18 @@ sealed class QueryPredicate(val name: String) {
             else QueryPredicateArg.Literal(value[it - 1])
         }
 
-        override fun invoke(match: QueryMatch) =
-            match[capture].none { (it.text()!! in value) != isPositive }
+        override fun invoke(match: QueryMatch, text: (Node) -> CharSequence?): Boolean =
+            match[capture].none {
+                val nodeText = text(it)
+                nodeText != null &&
+                    (value.any { literal -> literal.contentEquals(nodeText) } != isPositive)
+            }
     }
 
     internal class Generic(
         name: String,
         override val args: List<QueryPredicateArg>
     ) : QueryPredicate(name) {
-        override fun invoke(match: QueryMatch) = true
+        override fun invoke(match: QueryMatch, text: (Node) -> CharSequence?) = true
     }
 }
